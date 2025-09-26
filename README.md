@@ -1,7 +1,7 @@
 # VTD-Bypass 工具
 
 ## 📌 简介
-本工具 (`bypass.py` / `vtd_bypass.py`) 用于 **ACPI 表修改与 VT-d Bypass 实验**。  
+本工具 (`src.py`) 用于 **ACPI 表修改与 VT-d Bypass 实验**。  
 它可以在关闭 VT-d 的情况下读取 **XSDT 表**，向其中插入 **DMAR 表基址**，并将修改后的表写回系统内存，从而实现 VT-d 的旁路/绕过。  
 
 ⚠️ **注意**：此工具仅供研究与学习 ACPI / VT-d 相关机制使用，切勿在生产环境或无关系统上使用。  
@@ -46,7 +46,7 @@ pip install leechcorepyc
 ---
 
 ## 📂 文件说明
-- `bypass.py` / `vtd_bypass.py`：主程序。  
+- `src.py`：主程序。  
 - `config.key`：自动生成的加密密钥（存放在脚本同目录）。  
 - `mod.config`：加密保存的修改后 ACPI 配置文件（存放在脚本同目录）。  
 - `customized.config`：可选的自定义 DMAR 配置（加密，放在脚本同目录）。  
@@ -55,10 +55,10 @@ pip install leechcorepyc
 ---
 
 ## ⚡ 使用方法
-将 `bypass.py` 放在一个文件夹内，进入该目录并运行：
+将 `src.py` 放在一个文件夹内，进入该目录并运行：
 
 ```bash
-python bypass.py
+python src.py
 ```
 
 运行后会出现交互菜单，常见选项如下：
