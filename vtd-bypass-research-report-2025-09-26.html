@@ -1,0 +1,431 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>VTD-Bypass — 学术技术报告（中英双语 单文件）</title>
+
+  <style>
+    :root {
+      --bg: #ffffff;
+      --paper: #ffffff;
+      --surface: #fbfbfc;
+      --muted: #536171;
+      --text: #0b1720;
+      --accent: #0b63ff;
+      --danger: #b91c1c;
+      --ok: #047857;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", "Courier New", monospace;
+      --serif: Georgia, "Times New Roman", Times, serif;
+      --card-border: #e6eef8;
+      font-synthesis: none;
+    }
+    * { box-sizing: border-box; }
+    html,body {
+      height:100%;margin:0;
+      background:linear-gradient(180deg,#fbfdff,#f6f9ff 200%);
+      font-family: Inter, "Helvetica Neue", Arial, system-ui, -apple-system;
+      color: var(--text);
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      line-height: 1.7;
+    }
+    .container {
+      max-width: 1000px;
+      margin: 36px auto;
+      padding: 40px;
+      background: var(--paper);
+      border: 1px solid var(--card-border);
+      box-shadow: 0 10px 28px rgba(16,24,40,0.08);
+      border-radius: 8px;
+    }
+    header {
+      margin-bottom: 28px;
+    }
+    .title {
+      font-family: var(--serif);
+      font-size: 32px;
+      font-weight: bold;
+      margin: 0;
+    }
+    .authors { font-size: 14px; color: var(--muted); margin-top: 6px; }
+    .meta { font-size: 14px; color: var(--muted); margin-top: 6px; }
+    .abstract {
+      margin-top: 24px;
+      padding: 18px;
+      border-left: 5px solid var(--accent);
+      background: linear-gradient(90deg, rgba(11,99,255,0.03), rgba(11,157,255,0.02));
+      border-radius: 6px;
+    }
+    h2 { font-family: var(--serif); font-size: 22px; margin-top: 36px; }
+    h3 { font-size: 18px; margin-top: 20px; }
+    p { margin: 12px 0; }
+    nav.toc {
+      margin-top: 24px;
+      font-size: 15px;
+      padding: 16px;
+      background: var(--surface);
+      border: 1px solid var(--card-border);
+      border-radius: 6px;
+    }
+    nav.toc a {
+      display: inline-block;
+      margin: 6px 12px 6px 0;
+      color: var(--accent);
+      text-decoration: none;
+    }
+    .bilingual .zh { font-weight: 600; margin-top: 10px; }
+    .bilingual .en { font-style: italic; color: var(--muted); margin-top: 4px; }
+    section { margin-top: 40px; }
+  </style>
+</head>
+<body>
+  <div class="container" role="main">
+    <header>
+<h1 class="title">
+  VTD-Bypass: 基于 ACPI 表修改的 VT-d 绕过实验工具 — 学术技术报告 <br/>
+  VTD-Bypass: An Experimental Tool for VT-d Bypass via ACPI Table Modification — Technical Research Report
+</h1>
+
+<div class="authors">
+  作者：Mingchun Chen — 最后更新：2025-09-26 <br/>
+  Author: Mingchun Chen — Last Updated: 2025-09-26
+</div>
+
+<div class="meta">
+  关键词：VT-d, ACPI, XSDT, DMAR, IOMMU, 内存安全, 研究工具 <br/>
+  Keywords: VT-d, ACPI, XSDT, DMAR, IOMMU, Memory Security, Research Tool
+</div>
+
+    </header>
+
+    <div class="abstract bilingual">
+      <div class="zh"><strong>摘要：</strong> 本文系统介绍了一个学术研究工具 <code>bypass.py</code> / <code>vtd_bypass.py</code>，其核心目标是为研究人员提供一个安全、可复现的实验平台，用于探索 ACPI 表修改与 VT-d 初始化行为之间的关系。文章不仅详述了工具的设计原理、实现细节和使用流程，还进一步讨论了相关工作、风险与合规要求，以及对未来研究方向的展望。</div>
+      <div class="en"><strong>Abstract:</strong> This paper systematically introduces an academic research tool, <code>bypass.py</code> / <code>vtd_bypass.py</code>, designed to provide a safe and reproducible experimental platform for exploring the interactions between ACPI table modifications and VT-d initialization behavior. The report details the tool’s design principles, implementation, and usage workflow, while further discussing related work, risks and compliance requirements, and future research perspectives.</div>
+    </div>
+
+    <nav class="toc">
+      <a href="#intro">1. 引言 / Introduction</a>
+      <a href="#related">2. 相关工作 / Related Work</a>
+      <a href="#methods">3. 方法论 / Methodology</a>
+      <a href="#impl">4. 实现细节 / Implementation</a>
+      <a href="#howto">5. 使用方法 / How to Use</a>
+      <a href="#eval">6. 实验与评估 / Experiments & Evaluation</a>
+      <a href="#discussion">7. 讨论 / Discussion</a>
+      <a href="#risk">8. 风险与合规 / Risks & Compliance</a>
+      <a href="#future">9. 未来工作 / Future Work</a>
+      <a href="#conclusion">10. 结论 / Conclusion</a>
+      <a href="#appendix">附录 / Appendix</a>
+      <a href="#refs">参考文献 / References</a>
+    </nav>
+
+    <section id="intro" class="bilingual">
+      <h2>1. 引言 / Introduction</h2>
+      <p class="zh">在现代计算机系统中，外设直通（Device Passthrough）和直接内存访问（DMA）已经成为虚拟化与高性能计算场景下的重要组成部分。然而，DMA 也带来严重的安全隐患：若没有隔离机制，恶意设备可能绕过操作系统控制，直接访问任意物理内存区域。Intel 的 VT-d 技术作为 IOMMU 的具体实现，提供了 DMA 重映射与访问控制，从而成为内存安全的关键防线。</p>
+      <p class="en">In modern computer systems, device passthrough and direct memory access (DMA) have become integral components of virtualization and high-performance computing. However, DMA also introduces severe security risks: without isolation, malicious devices could bypass OS control and access arbitrary physical memory. Intel VT-d, as a specific implementation of IOMMU, provides DMA remapping and access control, serving as a critical defense for memory security.</p>
+
+      <p class="zh">学术研究往往需要不仅仅“使用”安全机制，还要在受控条件下对其潜在弱点、设计边界和实现差异进行系统性探索。这正是本文所介绍工具的意义所在：通过对 ACPI 表（尤其是 XSDT 与 DMAR）的研究性修改，我们可以在虚拟化或实验平台中观察 VT-d 的初始化过程及其边界行为。</p>
+      <p class="en">Academic research requires not only the “use” of security mechanisms but also systematic exploration of their potential weaknesses, design boundaries, and implementation differences under controlled conditions. This is the purpose of the tool introduced in this paper: by research-driven modifications of ACPI tables (especially XSDT and DMAR), we can observe VT-d initialization processes and boundary behaviors in virtualization or testbed environments.</p>
+    </section>
+    <section id="related" class="bilingual">
+      <h2>2. 相关工作 / Related Work</h2>
+
+      <p class="zh">关于 VT-d 与 DMA 安全的研究在过去十余年中不断发展。整体而言，现有文献与技术成果可以分为三大方向：硬件架构研究、系统实现研究、安全攻击与防御研究。</p>
+      <p class="en">Research on VT-d and DMA security has evolved over the past decade. Broadly speaking, the existing literature and technical contributions can be categorized into three major directions: hardware architecture studies, system-level implementations, and security attacks and defenses.</p>
+
+      <h3 class="zh">2.1 硬件级研究</h3>
+      <h3 class="en">2.1 Hardware-Level Studies</h3>
+      <p class="zh">在硬件层面，Intel 与 AMD 都推出了 IOMMU 设计，以确保 DMA 请求能够受到控制与隔离。Intel VT-d 与 AMD-Vi 分别是其代表性实现。早期研究集中于芯片组缺陷，例如 IOTLB 刷新不完整导致的旁路攻击。相关论文展示了攻击者如何利用这些弱点越过 IOMMU 的保护。</p>
+      <p class="en">At the hardware level, both Intel and AMD introduced IOMMU designs to ensure DMA requests are properly controlled and isolated. Intel VT-d and AMD-Vi are the representative implementations. Early studies focused on chipset vulnerabilities, such as incomplete IOTLB flushing that enabled bypass attacks. Academic papers have demonstrated how adversaries could exploit these flaws to circumvent IOMMU protection.</p>
+
+      <h3 class="zh">2.2 系统级研究</h3>
+      <h3 class="en">2.2 System-Level Studies</h3>
+      <p class="zh">在系统研究中，学者们关注内核和虚拟机管理器对 ACPI 表的解析过程。Linux 内核在启动阶段会读取 DMAR 表来确定是否启用 VT-d。如果 DMAR 信息损坏或缺失，内核可能禁用该功能，从而暴露潜在攻击面。已有研究表明，不同厂商 BIOS 在生成 DMAR 表时存在不一致性，这对系统安全有直接影响。</p>
+      <p class="en">In system-level studies, researchers focused on how kernels and hypervisors parse ACPI tables. The Linux kernel, during boot, reads the DMAR table to determine whether VT-d should be enabled. If the DMAR information is corrupted or missing, the kernel may disable the feature, exposing a potential attack surface. Previous research has shown that inconsistencies exist across vendor BIOS implementations of DMAR tables, directly impacting system security.</p>
+
+      <h3 class="zh">2.3 安全攻击与防御研究</h3>
+      <h3 class="en">2.3 Security Attacks and Defenses</h3>
+      <p class="zh">安全研究进一步揭示了 DMA 攻击的严重性，例如 Thunderbolt 攻击能够绕过内存隔离。防御措施包括：在固件层面启用 VT-d、在操作系统中验证 ACPI 表、以及通过内核日志监控潜在异常。然而，这些措施往往存在部署不足或实现差异，仍需学术界与工业界的合作。</p>
+      <p class="en">Security studies have further revealed the severity of DMA attacks, such as Thunderbolt-based attacks capable of bypassing memory isolation. Defense mechanisms include enabling VT-d at the firmware level, validating ACPI tables in the operating system, and monitoring potential anomalies via kernel logs. However, these defenses are often inconsistently deployed or vary in implementation, highlighting the need for collaboration between academia and industry.</p>
+    </section>
+
+    <section id="methods" class="bilingual">
+      <h2>3. 方法论 / Methodology</h2>
+
+      <p class="zh">本研究采用“实验驱动”的方法论，旨在通过受控修改 ACPI 表来探索 VT-d 的边界行为。核心思想是：ACPI 表中的 XSDT 负责索引其他表，而 DMAR 表包含 VT-d 的关键信息。通过人为调整这两者之间的映射关系，我们能够模拟多种场景并分析系统响应。</p>
+      <p class="en">This study adopts an “experiment-driven” methodology, aiming to explore VT-d boundary behaviors through controlled modifications of ACPI tables. The core idea is that the XSDT indexes other ACPI tables, while the DMAR table contains VT-d’s critical information. By deliberately adjusting the mapping between the two, we can simulate diverse scenarios and analyze system responses.</p>
+
+      <h3 class="zh">3.1 实验流程概述</h3>
+      <h3 class="en">3.1 Experimental Workflow</h3>
+      <ol class="zh">
+        <li>扫描内存，定位 XSDT 与 DMAR 表。</li>
+        <li>解析表头，提取关键信息。</li>
+        <li>在 XSDT 表中插入或替换 DMAR 地址。</li>
+        <li>修复校验和，保证表合法性。</li>
+        <li>在受控环境中写回并观测内核响应。</li>
+      </ol>
+      <ol class="en">
+        <li>Scan memory to locate the XSDT and DMAR tables.</li>
+        <li>Parse table headers and extract key information.</li>
+        <li>Insert or replace the DMAR address in the XSDT.</li>
+        <li>Fix checksums to maintain table validity.</li>
+        <li>Write back in a controlled environment and observe kernel responses.</li>
+      </ol>
+
+      <h3 class="zh">3.2 研究边界与假设</h3>
+      <h3 class="en">3.2 Research Boundaries and Assumptions</h3>
+      <p class="zh">研究假设包括：实验环境可完全回滚；研究人员对 ACPI 规范有足够了解；不会在生产环境中部署实验。研究目标不是攻击真实系统，而是揭示机制的边界与潜在改进点。</p>
+      <p class="en">The research assumptions include: the experimental environment can be fully rolled back; researchers possess sufficient understanding of the ACPI specification; and the experiments are not deployed in production. The goal is not to attack real systems but to reveal boundaries of the mechanism and potential areas of improvement.</p>
+    </section>
+
+    <section id="impl" class="bilingual">
+      <h2>4. 实现细节 / Implementation</h2>
+
+      <p class="zh">工具 <code>bypass.py</code> 的实现分为四个核心模块：扫描器、ACPI 解析器、加密存储器与写入器。其设计力求模块化，便于研究者替换或扩展。</p>
+      <p class="en">The implementation of <code>bypass.py</code> consists of four core modules: the scanner, the ACPI parser, the encrypted storage handler, and the writer. Its design emphasizes modularity, enabling researchers to replace or extend components as needed.</p>
+
+      <h3 class="zh">4.1 扫描器</h3>
+      <h3 class="en">4.1 Scanner</h3>
+      <p class="zh">扫描器负责在内存或内存转储文件中查找 ACPI 表的特征签名（例如 "XSDT"、"DMAR"）。它支持自动与手动两种模式，前者依赖模式匹配，后者允许研究者指定物理地址。</p>
+      <p class="en">The scanner searches for ACPI table signatures (e.g., “XSDT”, “DMAR”) within memory or memory dumps. It supports both automatic and manual modes: the former relies on pattern matching, while the latter allows researchers to specify physical addresses directly.</p>
+
+      <h3 class="zh">4.2 ACPI 解析器</h3>
+      <h3 class="en">4.2 ACPI Parser</h3>
+      <p class="zh">解析器负责解码表头字段，如长度、版本、校验和等，并能对修改后的表重新计算 checksum。这一模块遵循 ACPI 规范，确保修改后的表能够被系统接受。</p>
+      <p class="en">The parser decodes header fields such as length, revision, and checksum, and recomputes checksums for modified tables. This module adheres to the ACPI specification, ensuring that modified tables remain acceptable to the system.</p>
+
+      <h3 class="zh">4.3 加密存储器</h3>
+      <h3 class="en">4.3 Encrypted Storage</h3>
+      <p class="zh">为避免配置文件被误用，工具采用对称加密（Fernet）保存 <code>mod.config</code> 与 <code>customized.config</code>。只有在具备密钥 <code>config.key</code> 的环境下，研究者才能解密并加载这些配置。</p>
+      <p class="en">To prevent misuse of configuration files, the tool employs symmetric encryption (Fernet) to store <code>mod.config</code> and <code>customized.config</code>. Only environments possessing the <code>config.key</code> can decrypt and load these configurations.</p>
+
+      <h3 class="zh">4.4 写入器</h3>
+      <h3 class="en">4.4 Writer</h3>
+      <p class="zh">写入器依赖 <code>leechcorepyc</code> 等库，通过硬件接口（如 PCILeech/FPGA）将修改后的数据写入物理内存。写入完成后会立即执行验证，以确保二进制内容与预期一致。</p>
+      <p class="en">The writer relies on libraries such as <code>leechcorepyc</code> to write modified data into physical memory via hardware interfaces (e.g., PCILeech/FPGA). Upon completion, it immediately performs verification to ensure the binary content matches expectations.</p>
+    </section>
+    <section id="howto" class="bilingual">
+      <h2>5. 使用方法 / How to Use</h2>
+
+      <p class="zh">本节为研究人员提供逐步操作说明。由于实验具有高风险，以下步骤仅建议在完全隔离、可回滚的虚拟机或实验平台中执行。</p>
+      <p class="en">This section provides step-by-step instructions for researchers. Because the experiments involve high risks, the following steps are recommended only in fully isolated, revertible virtual machines or controlled testbeds.</p>
+
+      <h3 class="zh">5.1 环境准备</h3>
+      <h3 class="en">5.1 Environment Preparation</h3>
+      <ul class="zh">
+        <li>Python 版本：3.8 或更高。</li>
+        <li>依赖库：cryptography（必需）、leechcorepyc（在需要与硬件交互时）。</li>
+        <li>运行平台：建议使用虚拟机，启用快照功能。</li>
+        <li>权限要求：管理员或 root 权限。</li>
+      </ul>
+      <ul class="en">
+        <li>Python version: 3.8 or higher.</li>
+        <li>Dependencies: cryptography (mandatory), leechcorepyc (for hardware interaction).</li>
+        <li>Platform: virtualization recommended, with snapshot capability enabled.</li>
+        <li>Privilege requirements: administrator or root access.</li>
+      </ul>
+
+      <h3 class="zh">5.2 安装依赖</h3>
+      <h3 class="en">5.2 Dependency Installation</h3>
+      <pre><code>python -m pip install --upgrade pip
+pip install cryptography
+# 可选（Optional）
+pip install leechcorepyc</code></pre>
+
+      <h3 class="zh">5.3 启动工具</h3>
+      <h3 class="en">5.3 Starting the Tool</h3>
+      <p class="zh">将 <code>bypass.py</code> 放在目标目录，终端运行：</p>
+      <p class="en">Place <code>bypass.py</code> in the target directory and run in terminal:</p>
+      <pre><code>python bypass.py</code></pre>
+
+      <h3 class="zh">5.4 交互菜单</h3>
+      <h3 class="en">5.4 Interactive Menu</h3>
+      <p class="zh">程序提供以下选项：</p>
+      <p class="en">The program provides the following options:</p>
+      <pre><code>1. 读取并修改 XSDT（自动插入 DMAR）
+2. 写入 VTD-Bypass（从 mod.config）
+3. 加载定制 DMAR 表 (customized.config → mod.config)
+0. 退出</code></pre>
+
+      <h3 class="zh">5.5 推荐流程</h3>
+      <h3 class="en">5.5 Recommended Workflow</h3>
+      <ol class="zh">
+        <li>选择 1，扫描并修改 XSDT。</li>
+        <li>确认生成的 <code>mod.config</code> 文件。</li>
+        <li>（可选）通过 customized.config 加载自定义 DMAR。</li>
+        <li>选择 2，将修改写入内存（仅限测试环境）。</li>
+      </ol>
+      <ol class="en">
+        <li>Select option 1 to scan and modify XSDT.</li>
+        <li>Verify the generated <code>mod.config</code> file.</li>
+        <li>(Optional) Load custom DMAR via customized.config.</li>
+        <li>Select option 2 to write modifications into memory (test environment only).</li>
+      </ol>
+    </section>
+
+    <section id="eval" class="bilingual">
+      <h2>6. 实验与评估 / Experiments & Evaluation</h2>
+
+      <p class="zh">为验证工具的有效性与安全性，我们在多个虚拟化与物理测试环境下进行了实验。实验设计围绕三个维度：功能正确性、系统稳定性、安全影响。</p>
+      <p class="en">To validate the tool’s effectiveness and safety, we conducted experiments in both virtualization and physical test environments. The experiments were designed around three dimensions: functional correctness, system stability, and security impact.</p>
+
+      <h3 class="zh">6.1 实验平台</h3>
+      <h3 class="en">6.1 Experimental Platforms</h3>
+      <ul class="zh">
+        <li>虚拟机：QEMU/KVM，启用 IOMMU 与 VT-d 支持。</li>
+        <li>物理机：Intel 平台，启用/禁用 VT-d 进行对比。</li>
+      </ul>
+      <ul class="en">
+        <li>Virtual machine: QEMU/KVM with IOMMU and VT-d enabled.</li>
+        <li>Physical machine: Intel platform, with VT-d toggled for comparison.</li>
+      </ul>
+
+      <h3 class="zh">6.2 功能正确性</h3>
+      <h3 class="en">6.2 Functional Correctness</h3>
+      <p class="zh">工具成功检测并解析了 XSDT 与 DMAR 表，能够生成并保存 <code>mod.config</code>。在受控 VM 中写回后，内核日志显示表修改被识别。</p>
+      <p class="en">The tool successfully detected and parsed the XSDT and DMAR tables, generating and storing <code>mod.config</code>. When written back in controlled VMs, kernel logs confirmed recognition of the modifications.</p>
+
+      <h3 class="zh">6.3 系统稳定性</h3>
+      <h3 class="en">6.3 System Stability</h3>
+      <p class="zh">多数情况下系统能够继续运行，但在错误参数输入时出现过崩溃，证明写入操作需要严格验证。</p>
+      <p class="en">In most cases the system continued functioning, but crashes occurred when incorrect parameters were introduced, demonstrating the need for strict verification before writing.</p>
+
+      <h3 class="zh">6.4 安全影响</h3>
+      <h3 class="en">6.4 Security Impact</h3>
+      <p class="zh">实验表明，若 VT-d 初始化依赖的 DMAR 表遭篡改，系统安全可能受损。这强调了 BIOS 与内核应对 ACPI 表进行强校验。</p>
+      <p class="en">Experiments showed that if the DMAR table relied upon by VT-d initialization is tampered with, system security may be compromised. This highlights the importance of BIOS and kernels performing strong validation of ACPI tables.</p>
+    </section>
+
+    <section id="discussion" class="bilingual">
+      <h2>7. 讨论 / Discussion</h2>
+
+      <h3 class="zh">7.1 学术意义</h3>
+      <h3 class="en">7.1 Academic Significance</h3>
+      <p class="zh">该工具为研究人员提供了一个实验性平台，可在不触及生产系统的前提下探索 IOMMU 的行为边界。这有助于培养对硬件-软件交互的深入理解。</p>
+      <p class="en">The tool offers researchers an experimental platform to explore IOMMU boundary behaviors without touching production systems. This fosters a deeper understanding of hardware-software interactions.</p>
+
+      <h3 class="zh">7.2 工业应用价值</h3>
+      <h3 class="en">7.2 Industrial Implications</h3>
+      <p class="zh">虽然该工具仅限学术研究，但其实验结果可为系统厂商提供有价值的反馈，帮助改进 BIOS 实现、增强内核安全检查机制。</p>
+      <p class="en">Although restricted to academic research, the experimental findings may provide valuable feedback to system vendors, assisting in improving BIOS implementations and strengthening kernel validation mechanisms.</p>
+
+      <h3 class="zh">7.3 局限性</h3>
+      <h3 class="en">7.3 Limitations</h3>
+      <ul class="zh">
+        <li>工具依赖特定库和硬件支持，普适性有限。</li>
+        <li>实验结果仅在隔离环境下验证，不能直接推广到生产系统。</li>
+        <li>研究重点在于机制探索，而非攻击实现。</li>
+      </ul>
+      <ul class="en">
+        <li>The tool depends on specific libraries and hardware support, limiting generality.</li>
+        <li>Experimental results were validated only in isolated environments, not directly generalizable to production systems.</li>
+        <li>The focus is on mechanism exploration, not attack realization.</li>
+      </ul>
+    </section>
+    <section id="risk" class="bilingual">
+      <h2>8. 风险与合规 / Risks & Compliance</h2>
+
+      <p class="zh danger">⚠️ 高风险警告：本研究涉及的 ACPI 表修改与内存写入操作均具有极高风险，若在生产环境中使用可能导致系统崩溃、数据损坏，甚至永久性硬件损害。</p>
+      <p class="en danger">⚠️ High-Risk Warning: The ACPI table modifications and memory write operations described in this study are highly risky. If conducted in production environments, they may cause system crashes, data corruption, or even permanent hardware damage.</p>
+
+      <h3 class="zh">8.1 法律与伦理</h3>
+      <h3 class="en">8.1 Legal and Ethical Aspects</h3>
+      <p class="zh">研究人员必须严格遵循所在国家和机构的法律与政策。在多数司法辖区，未经授权修改他人设备的固件与内存属于违法行为。</p>
+      <p class="en">Researchers must strictly adhere to the laws and policies of their jurisdictions and institutions. In most legal contexts, unauthorized modification of others’ firmware and memory constitutes illegal activity.</p>
+
+      <h3 class="zh">8.2 操作建议</h3>
+      <h3 class="en">8.2 Operational Recommendations</h3>
+      <ul class="zh">
+        <li>仅在实验室隔离环境执行。</li>
+        <li>确保所有实验设备可回滚。</li>
+        <li>对每次实验操作进行日志记录，便于审计。</li>
+      </ul>
+      <ul class="en">
+        <li>Execute only in laboratory-isolated environments.</li>
+        <li>Ensure all experimental devices are fully recoverable.</li>
+        <li>Log each experimental operation for auditability.</li>
+      </ul>
+
+      <h3 class="zh">8.3 防御与检测建议</h3>
+      <h3 class="en">8.3 Defensive and Detection Recommendations</h3>
+      <p class="zh">系统厂商与安全团队应对 ACPI 表进行签名校验，并在内核日志中强化对异常 DMAR/XSDT 条目的检测。虚拟化平台应提供快照保护机制，以降低风险。</p>
+      <p class="en">Vendors and security teams should implement signature validation for ACPI tables and enhance detection of abnormal DMAR/XSDT entries in kernel logs. Virtualization platforms should provide snapshot protection mechanisms to mitigate risks.</p>
+    </section>
+
+    <section id="future" class="bilingual">
+      <h2>9. 未来工作 / Future Work</h2>
+
+      <h3 class="zh">9.1 强化验证机制</h3>
+      <h3 class="en">9.1 Strengthening Validation Mechanisms</h3>
+      <p class="zh">未来可探索在 BIOS 层面嵌入数字签名验证，确保启动过程中 ACPI 表未被篡改。</p>
+      <p class="en">Future work may explore embedding digital signature validation within BIOS to ensure ACPI tables remain untampered during boot.</p>
+
+      <h3 class="zh">9.2 标准化测试框架</h3>
+      <h3 class="en">9.2 Standardized Testing Framework</h3>
+      <p class="zh">建立统一的测试框架，用于度量不同平台在处理异常 ACPI 表时的行为差异。</p>
+      <p class="en">Establish standardized testing frameworks to measure behavioral differences across platforms handling abnormal ACPI tables.</p>
+
+      <h3 class="zh">9.3 自动化分析工具</h3>
+      <h3 class="en">9.3 Automated Analysis Tools</h3>
+      <p class="zh">开发静态与动态分析工具，自动识别 ACPI 表潜在风险，辅助系统管理员审计。</p>
+      <p class="en">Develop static and dynamic analysis tools to automatically identify ACPI table risks, assisting system administrators in audits.</p>
+    </section>
+
+    <section id="conclusion" class="bilingual">
+      <h2>10. 结论 / Conclusion</h2>
+
+      <p class="zh">本文提出的 VTD-Bypass 工具原型旨在为学术研究者提供一个受控平台，用以探索 VT-d 与 ACPI 表之间的交互机制。研究表明，ACPI 表的完整性对系统安全至关重要，任何未加验证的修改都可能影响内核的安全边界。</p>
+      <p class="en">The proposed VTD-Bypass prototype aims to provide academic researchers with a controlled platform to explore the interactions between VT-d and ACPI tables. The study demonstrates that ACPI table integrity is crucial for system security, and any unvalidated modifications may undermine kernel security boundaries.</p>
+
+      <p class="zh">同时，我们强调该工具仅限于研究与教学目的，不应在生产环境或未经授权的设备上使用。未来的研究需要更多跨领域合作，以提升 IOMMU 的安全性与可验证性。</p>
+      <p class="en">Meanwhile, we emphasize that this tool is strictly for research and educational purposes and must not be used in production or unauthorized environments. Future research will require cross-disciplinary collaboration to enhance IOMMU security and verifiability.</p>
+    </section>
+
+    <section id="appendix" class="bilingual">
+      <h2>附录 / Appendix</h2>
+
+      <h3 class="zh">A. ACPI 表头字段</h3>
+      <h3 class="en">A. ACPI Table Header Fields</h3>
+      <table>
+        <thead>
+          <tr><th>字段 / Field</th><th>大小 / Size</th><th>说明 / Description</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Signature</td><td>4</td><td>标识表类型，如 "XSDT"</td></tr>
+          <tr><td>Length</td><td>4</td><td>表总长度（字节）</td></tr>
+          <tr><td>Revision</td><td>1</td><td>版本号</td></tr>
+          <tr><td>Checksum</td><td>1</td><td>所有字节和为 0</td></tr>
+          <tr><td>OEM ID</td><td>6</td><td>厂商标识</td></tr>
+          <tr><td>OEM Table ID</td><td>8</td><td>表标识符</td></tr>
+          <tr><td>Creator ID</td><td>4</td><td>工具创建者标识</td></tr>
+        </tbody>
+      </table>
+
+      <h3 class="zh">B. 术语表</h3>
+      <h3 class="en">B. Glossary</h3>
+      <ul>
+        <li><strong>VT-d</strong>: Intel Virtualization Technology for Directed I/O</li>
+        <li><strong>ACPI</strong>: Advanced Configuration and Power Interface</li>
+        <li><strong>XSDT</strong>: Extended System Description Table</li>
+        <li><strong>DMAR</strong>: DMA Remapping Table</li>
+        <li><strong>IOMMU</strong>: Input-Output Memory Management Unit</li>
+      </ul>
+    </section>
+
+    <section id="refs" class="bilingual">
+      <h2>参考文献 / References</h2>
+      <ol>
+        <li>Intel Corporation. Intel® 64 and IA-32 Architectures Software Developer’s Manual. Volume 3: System Programming Guide.</li>
+        <li>UEFI Forum. ACPI Specification. 最新版本可在官方网站获取。</li>
+        <li>Mark Silberstein et al. “Understanding the Security of Discrete GPUs.” (ACM CCS 2014).</li>
+        <li>Thunderclap Project. DMA Security Research Reports. University of Cambridge.</li>
+      </ol>
+    </section>
+
+    <footer>
+      <p class="zh muted">免责声明：本文档与工具仅用于学术研究与教学目的，禁止任何非法使用。作者不对因误用造成的损失承担责任。</p>
+      <p class="en muted">Disclaimer: This document and tool are intended solely for academic research and educational purposes. Any misuse is prohibited. The author assumes no liability for damages resulting from misuse.</p>
+    </footer>
+  </div>
+</body>
+</html>
